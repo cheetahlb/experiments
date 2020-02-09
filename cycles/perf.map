@@ -1,0 +1,21 @@
+rte_hash_lookup: Table/Lookup
+rte_hash_insert|rte_hash_add_key : Table/Insert
+Cheetah.*get_id : Cheetah/Cookie extraction
+Cheetah.*set_id : Cheetah/Cookie insertion
+rte_hash_k16|rte_hash_crc|ipv4_hash_crc: Table/Hashing
+IPLoadBalancer: LB-Header
+LoadBalancer|pick_server: LB-Logic
+CheckIPHeader: IO
+RouterThread: IO
+Cheetah: Cheetah
+ResetIPChecksum: Checksum Fix
+ToDPDKDevice: IO
+Classifier: IO
+IPFilter: IO
+FromDPDKDevice: IO
+ARPQuerier: L2
+Ageing: L2
+Packetmake: IO
+mlx5_: IO
+rte_mempool : IO
+scheduler|tick_sched_timer : IO

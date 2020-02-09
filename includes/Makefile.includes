@@ -1,0 +1,6 @@
+NPF_PATH=/home/tom/npf
+EXPE_PATH=/home/tom/workspace/cheetah-experiments/real/
+N_RUNS=10
+CHEETAH_PATH=/home/tom/workspace/cheetah/
+TESTIE_PATH=${EXPE_PATH}/includes/cheetah.testie
+NPF_CLUSTER=client=nslrack15-100G client=nslrack16-100G client=nslrack17-100G client=nslrack18-100G lb=nslrack14-100G,nic=2+3 server=nslrack20-100G,multi=16,mode=netns server=nslrack21-100G,multi=16,mode=netns server=nslrack19-100G,multi=16,mode=netns server=nslrack22-100G,multi=16,mode=netns

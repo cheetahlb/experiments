@@ -1,0 +1,787 @@
+%config
+timeout=90
+
+result_add={THROUGHPUT,REQUEST,NBREQ,GNBREQ,GERR} //For multi-client
+result_append={LATENCY,LAT99,GLAT99,GLATENCY,GPROBELAT99,GPROBELATENCY}
+accept_zero={LB_DROPPED,HTTPTIMEOUT,GERR}
+
+var_names={THROUGHPUT:Throughput (GB/s)}
+var_format={THROUGHPUT:%.02f}
+var_divider={THROUGHPUT:1000000000}
+
+var_names+={GEN_RATE:Requests per seconds}
+var_format+={GEN_RATE:%dK}
+var_divider+={GEN_RATE:1000}
+var_unit+={GEN_RATE: }
+
+var_names+={LB_USEFUL:KCycles,LB_USEFUL_PP:Cycles / packets,LB_CYCLESPP:Cycles / packets}
+var_format+={LB_USEFUL:%d,LB_CYCLESPP:%d}
+var_unit+={LB_USEFUL: ,LB_CYCLESPP: }
+var_lim+={CYCLES:0-}
+var_grid+={LB_CYCLESPP}
+
+var_names+={REQUEST:Requests per seconds}
+var_format+={REQUEST:%dK}
+var_divider+={REQUEST:1000}
+var_unit+={REQUEST: }
+
+var_names+={LAT99:99th% flow completion time (ms),LATENCY:Flow completion time (ms),LAT999:99.9th percentile Latency (ms)}
+var_format+={LAT99:%d,LATENCY:%d}
+var_unit+={LAT99:s,LATENCY:s,LAT999:s}
+var_divider+={LAT:0.001}
+var_log+={LAT99,LATENCY,LAT999}
+var_ticks+={LAT99:0+1+10+20+50+100+200+500+1000+2000+10000,LAT999:0+1+10+20+50+100+200+500+1000+2000+10000}
+var_lim+={result-LAT999:20-5000,result-LAT99:10-5000,result-LATENCY:0-2000}
+var_grid+={LAT999,LAT99,LATENCY}
+latcross:graph_cross_reference={LAT99:CPUAVGS,LAT999:CPUAVGS}
+graph_background={LAT99:14}
+
+var_names+={NETPERNODE:Prefixes per clients}
+
+var_names+={CPUVARS:Variance accross server load (%),CPUAVGS:Server average load (%)}
+var_format+={CPUVARS:%d}
+var_unit+={CPUVARS: }
+//-bimodal:var_lim+={result-CPUVARS:0-250}
+//var_ticks+={CPUVARS:0+1+2+5+10+25+50+100+250+500+1000}
+//var_log+={CPUVARS}
+var_grid+={CPUVARS}
+graph_types={CPUVARS:boxplot}
+graph_show_fliers=0
+graph_background+={CPUVARS:14}
+
+var_names+={NSERVER:Number of servers}
+
+
+var_names+={NBREQ:Number of completed requests (M)}
+var_divider+={NBREQ:1000000}
+var_unit+={NBREQ:requests,result: }
+var_format+={NBREQ:%d}
+var_grid+={NBREQ}
+
+var_names+={GNBREQ:Requests per seconds,NBSRV:Number of servers}
+var_unit+={GNBREQ:requests}
+var_divider+={GNBREQ:1}
+
+accum:results_expect={LB_CYCLESPP}
+
+perfclass:graph_result_as_variable+={PERF-(.*):Perf}
+
+%script@lb delay=1 autokill=false name=LBCopier
+cp BEGIN $WORKSPACE/
+
+%script@lb delay=2 sudo=true name=LBMainClick
+cd $WORKSPACE
+sudo killall -9 click
+$GDB bin/click --dpdk -w ${self:0:pci} -w ${self:1:pci} -l 0-35 -- BEGIN macleft=${self:0:mac} macright=${self:1:mac}
+
+%variables
+RIN=32
+ROUT=-1
+VERBOSE=0
+PRINT=0
+//CAPA=32768
+CAPA=4194304
+CPU=2
+FSIZE=8
+GEN_CONCURRENT=1024
+GEN_THREADS=16
+GEN_TIME=15
+LB_MODE=rr
+LST_MODE=cpu
+hash:LB_MODE=hash
+hash,crc:LB_MODE=hash_crc
+hash,rss:LB_MODE=hash_agg
+cst_hash:LB_MODE=cst_hash_agg
+NGINX_ROOT=./nginx/
+KEEPALIVE=0
+NETPERNODE=64
+obfuscate:OBFUSCATE=1
+
+mp,cuckoo:FIPM=FlowIPManagerMP
+mp,cuckoo:FIPMOPT=, LF 1
+-mp,cuckoo:FIPM=FlowIPManagerIMP
+
+wait,-bimodal,-server_wait:WAIT=0
+wait,bimodal,-server_wait:WAIT=100
+bimodal:WAIT_DIS=bimodal
+dsr:DSR=1
+REPORTPERIOD=100
+
+wait,bimodal:WAIT_MAX=500000
+wait,bimodal:WAIT_PARAM=0.90
+
+distribution:SERVER=httpserver.py
+//dynamic:AUTOSCALE=1
+
+dsr|serverside:FIX_ECR=false
+serverside:FIX_VAL=false
+
+//accum:APROOF=1
+
+parallel:SCALE=parallel
+
+%late_variables
+SCALE?=share
+FIPMOPT?=
+cheetah,stateful|cheetah,serverside:SRVCOOKIE?=1
+SRVCOOKIE?=0
+//cheetah,stateful:TWRECYCLE?=0
+-accum:ACCUMBEGIN=
+-accum:ACCUMEND=
+-accum:ACCUMBWBEGIN=
+-accum:ACCUMBWEND=
+accum:ACCUMBEGIN=  -> accum_start :: RoundTripCycleCount
+accum:ACCUMEND=  -> accum_stop :: RoundTripCycleCount
+//-> accum_stop_proof :: RoundTripCycleCount
+accum:ACCUMBWBEGIN=  -> accumbw_start :: RoundTripCycleCount
+accum:ACCUMBWEND=  -> accumbw_stop :: RoundTripCycleCount
+//-> accumbw_stop_proof :: RoundTripCycleCount
+
+OBFUSCATE?=0
+TWRECYCLE?=2
+SRVBACKLOG?=65536
+SYNACKRETRIES?=5
+AUTOSCALE?=0
+NSTARTSERVER?=0
+DURATION?=0
+SERVER?=NGINX
+AWRR_ALPHA?=0
+pftb?=1
+pft?=1
+noprefetch:pft=0
+noprefetch|dsr:pftb=0
+DSR?=0
+L2=false
+l2:L2=true
+FIX_IP=true
+FIX_ECR?=true
+FIX_VAL?=true
+l2|dsr:FIX_IP=false
+cheetah,obfuscate:HASHBW=, RSS_HF IP | TCP | UDP | L3_DST_ONLY, RSS_KEY \< 6d5a 6d5a 6d5a 6d5a 6d5a 6d5a 6d5a 6d5a 6d5a 6d5a 6d5a 6d5a 6d5a 6d5a 6d5a 6d5a6d5a 6d5a 6d5a 6d5a >
+cheetah,obfuscate:HASHFW=, RSS_HF IP | TCP | UDP | L3_SRC_ONLY, RSS_KEY \< 6d5a 6d5a 6d5a 6d5a 6d5a 6d5a 6d5a 6d5a 6d5a 6d5a 6d5a 6d5a 6d5a 6d5a 6d5a 6d5a6d5a 6d5a 6d5a 6d5a >
+HASHBW?=
+HASHFW?=
+
+
+//NETPERNODE=EXPAND($(( $GEN_CONCURRENT / ${client:multi} )) )
+gdb:GDB=
+gdb:GDB=gdb -batch -ex run -ex bt --args
+RANDS=RANDOM(0,254)
+RANDT=RANDOM(0,255)
+//INTERNAL_PREFIX=10.221.0
+//EXTERNAL_PREFIX=10.220
+EXTERNAL_PREFIX=EXPAND(10.$(( $RANDS  + 1)))
+INTERNAL_PREFIX=EXPAND(10.${RANDS}.${RANDT})
+ARPCACHE?=true
+HW?=, HW fd1
+file_rate:GEN_RATE=EXPAND( $(( $FILE_RATE / $FSIZE )) )
+server_rate:GEN_RATE=EXPAND( $(( $SERVER_RATE * $NSERVER )) )
+server_wait:WAIT?=EXPAND( $(( int(max( ($SERVER_RATE * -4.3 +4400)  ,0) ) )) )
+
+NSERVERLOAD?=EXPAND(${NSERVER})
+
+server_concurrent:GEN_CONCURRENT=EXPAND( $(( $SERVER_CONCURRENT * $NSERVER )) )
+
+NDST=[5-70]
+DSTS=EXPAND(DST ${INTERNAL_PREFIX}.$NDST ,)
+DSTS=HEAD(${NSERVER}, $DSTS)
+NDST=
+
+//WRK_HOST=EXPAND(${EXTERNAL_PREFIX}.0.1)
+-wait,-wrkpath:FILE_PATH=EXPAND(bin-${FSIZE}K)
+wait,-wrkpath:FILE_PATH=EXPAND(wait/?time=$(( "$WAIT".strip() ))&fsize=$FSIZE&duration=$DURATION)
+wait,bimodal,-wrkpath:FILE_PATH=EXPAND(wait/?time=$(( "$WAIT".strip() ))&fsize=$FSIZE&time_max=${WAIT_MAX}&time_dis=${WAIT_DIS}&time_param=${WAIT_PARAM})
+
+%stateful:late_variables
+LBELEMIN=EXPAND( -> cheetah :: FlowIPLoadBalancer($DSTS VIP ${EXTERNAL_PREFIX}.0.1, LB_MODE $LB_MODE, NSERVER $NSTARTSERVER) )
+LBELEMOUT=  -> FlowIPLoadBalancerReverse(LB cheetah)
+
+%-stateful,-beamer:late_variables
+LBELEMIN=EXPAND( -> cheetah :: IPLoadBalancer($DSTS VIP ${EXTERNAL_PREFIX}.0.1, LB_MODE $LB_MODE, NSERVER $NSTARTSERVER ) )
+LBELEMOUT=  -> IPLoadBalancerReverse(LB cheetah)
+CLASSIN=
+CLASSOUT=
+
+%beamer:late_variables
+LBELEMIN=EXPAND( -> cheetah :: SimpleBeamerLB($DSTS VIP ${EXTERNAL_PREFIX}.0.1 , NSERVER $NSTARTSERVER ) )
+LBELEMOUT=EXPAND(  -> IPLoadBalancerReverse(VIP ${EXTERNAL_PREFIX}.0.1) )
+CLASSIN=
+CLASSOUT=
+AFTERELEMIN= -> Strip(36) -> MarkIPHeader -> FlowIPManagerIMP(CAPACITY 10000000) -> Unstrip(36) -> BeamerVerifier(cheetah)
+
+%cheetah,-stateful:late_variables
+LBELEMIN=EXPAND( -> [0] cheetah :: CheetahStateless(VIP ${EXTERNAL_PREFIX}.0.1, $DSTS BUCKETS 256, FIX_TS_ECR $FIX_ECR, SET_TS_VAL $FIX_VAL, FIX_IP $FIX_IP,AWRR_ALPHA ${AWRR_ALPHA}, AWRR_TIME $((int($REPORTPERIOD / 2) )), VERBOSE $verbose, LB_MODE $LB_MODE $HW, LST_MODE $LST_MODE, RESET_TIME 1, HASH $OBFUSCATE, AUTOSCALE $AUTOSCALE, NSERVER $NSTARTSERVER)[0] ) //L2 $L2
+LBELEMOUT=  -> [1]cheetah[1]
+CLASSIN=
+CLASSOUT=
+
+%cuckoo:late_variables
+CLASSIN=EXPAND( -> flowmanager :: $FIPM(RESERVE $RIN, CAPACITY $CAPA, TIMEOUT 0 $FIPMOPT ) )
+CLASSOUT=EXPAND( )
+
+%cheetah,stateful:late_variables
+CLASSIN=EXPAND( -> cheetahful :: CheetahStateful(RESERVE $RIN, VERBOSE $verbose, BACKWARD_RESERVE $ROUT, BLOCKS $(( int(pow(2, ceil(log2(abs($CAPA / 32768 ) ) ) ) ) ))  ) )
+CLASSOUT=EXPAND( )
+
+%late_variables
+AFTERELEMIN?=
+
+%script@client autokill=false sudo=true
+sysctl -w net.ipv4.neigh.default.gc_thresh1=2048
+sysctl -w net.ipv4.neigh.default.gc_thresh2=8192
+sysctl -w net.ipv4.neigh.default.gc_thresh3=65536
+sysctl -w net.core.somaxconn=1000000
+sysctl -w net.ipv4.tcp_max_syn_backlog=3240000
+sysctl -w net.ipv4.tcp_fin_timeout=5
+sysctl -w net.ipv4.tcp_max_orphans=1000000
+ip addr flush dev ${self:0:ifname}
+ifconfig ${self:0:ifname} ${EXTERNAL_PREFIX}.0.$(( ${NPF_NODE_ID} + 5 )) netmask 255.255.0.0
+set_irq_affinity.sh ${self:0:ifname} &> /dev/null || echo "Could not set ${self:0:ifname} IRQs!"
+#if [ ${lb:multi} -gt 1 -a $(($NPF_MULTI % 2)) -eq 1 ] ; then
+#    sudo arp -s ${EXTERNAL_PREFIX}.0.1 98:03:9b:03:53:b0
+#else
+#    sudo arp -s ${EXTERNAL_PREFIX}.0.1 50:6b:4b:43:8a:da
+#fi
+exit 0
+
+//%dynamic:script@client sudo=true autokill=false delay=20 wait=LOAD_START
+//echo "Killing second LB!"
+//sudo arp -d ${EXTERNAL_PREFIX}.0.1
+
+%init@server autokill=false
+echo 16 | sudo tee /sys/class/infiniband/mlx5_0/device/sriov_numvfs
+
+%script@server-0 autokill=false sudo=true
+function setns() {
+    srv=$1
+    if [ $srv -gt 6 ] ; then
+        f=$( echo "($srv - 7) % 8" | bc )
+        if [ $f -eq 0 ] ; then
+            vif=enp17s$( echo "( ($srv + 1 ) / 8)" | bc )
+        else
+            vif=enp17s$( echo "( ($srv + 1 ) / 8)" | bc )f$f
+        fi
+    else
+        vif=ens1f$( echo "1 + $srv" | bc )
+    fi
+    echo "Setting virtual server $srv with if $vif"
+//    ip netns del npfns$srv
+//    sleep 1
+    ip netns add npfns$srv
+    ip link set $vif netns npfns$srv
+    sleep 1
+    ip netns exec npfns$srv ifconfig $vif ${INTERNAL_PREFIX}.$( echo "5 + ${NPF_NODE_MAX} * ($srv - 1) + ${NPF_NODE_ID}" | bc) netmask 255.255.255.0
+    
+    if [ ${DSR} -eq 0 ] ; then
+        ip netns exec npfns$srv ip route add ${EXTERNAL_PREFIX}.0.0/16 via ${INTERNAL_PREFIX}.1
+    else
+        ip netns exec npfns$srv ip addr add ${EXTERNAL_PREFIX}.0.1 dev $vif
+        ip netns exec npfns$srv ip route add ${EXTERNAL_PREFIX}.0.0/8 via ${INTERNAL_PREFIX}.1 src ${EXTERNAL_PREFIX}.0.1
+    fi
+
+    ip netns exec npfns$srv sysctl -w net.ipv4.tcp_synack_retries=$SYNACKRETRIES
+
+    ip netns exec npfns$srv sysctl -w net.ipv4.tcp_tw_reuse=$TWRECYCLE
+
+    ip netns exec npfns$srv sysctl -w net.ipv4.tcp_syncookies=0
+    ip netns exec npfns$srv sysctl -w net.core.somaxconn=262144
+    ip netns exec npfns$srv sysctl -w net.ipv4.tcp_max_syn_backlog=3240000
+    ip netns exec npfns$srv sysctl -w net.ipv4.tcp_fin_timeout=5
+    ip netns exec npfns$srv sysctl -w net.ipv4.tcp_timestamps=2
+
+    ip netns exec npfns$srv sysctl -w net.ipv4.tcp_timestamp_cookie=$SRVCOOKIE
+    ip netns exec npfns$srv sysctl -w net.ipv4.ip_local_port_range="2048 64000"
+}
+for srv in $(seq ${server:multi}) ; do
+    setns $srv &
+done
+killall nginx &> /dev/null || true
+sleep 1
+killall -9 nginx &> /dev/null || true
+sleep 1
+service irqbalance stop
+
+wait
+
+echo "EVENT NETNSREADY"
+exit 0
+
+
+%file@lb BEGIN
+define( $verbose $VERBOSE,
+        $left 0,
+        $right 1,
+        $print $PRINT)
+
+HTTPServer()
+
+fd0 :: FromDPDKDevice(  $left, VERBOSE 2, MAXTHREADS $CPU, RSS_AGGREGATE true,PREFETCH_SECOND $pft,
+                        SCALE $SCALE
+                        $HASHFW )
+    -> Print(LEFT,-1,ACTIVE $print)
+    -> c :: Classifier(
+        12/0806 20/0001,
+        12/0806 20/0002,
+        12/0800,
+        -);
+c[2]
+-> Strip(14)
+    -> CheckIPHeader(CHECKSUM false)
+    -> tcl ::  IPClassifier(tcp, -)
+    $ACCUMBEGIN
+$CLASSIN
+$LBELEMIN
+    $ACCUMEND
+    $AFTERELEMIN
+    //    -> IPPrint("TORIGHT")
+//    -> SetIPAddress(${INTERNAL_PREFIX}.5) //The gateway is set by default by Cheetah to be the DST
+    -> ResetIPChecksum(L4 true)
+//    -> SetIPChecksum
+//    -> SetTCPChecksum
+    -> arpright :: ARPQuerier(IP ${INTERNAL_PREFIX}.1, ETH $macright, CACHE $ARPCACHE)
+    -> Print("TORIGHT", -1, ACTIVE $print)
+    -> td1 :: ToDPDKDevice($right, TCO true);
+
+tcl[1] -> Print("NOT TCP", ACTIVE $(( 1 if $VERBOSE > 0 else 0 )) ) -> Discard;
+
+arprespleft :: ARPResponder(${EXTERNAL_PREFIX}.0.1 $macleft)
+
+c[0] -> arprespleft;
+
+c[3] -> Print("Unknown packet type") -> Discard;
+
+
+fd1 :: FromDPDKDevice($right, VERBOSE 2, MAXTHREADS $CPU, RSS_AGGREGATE true, PREFETCH_SECOND $pftb,
+                        SCALE $SCALE
+                        $HASHBW
+ )
+    -> Print(RIGHT,-1, ACTIVE $print)
+    -> cr :: Classifier(
+        12/0806 20/0001,
+        12/0806 20/0002,
+        12/0800,
+        -);
+cr[2]
+    -> Strip(14)
+    -> CheckIPHeader(CHECKSUM false)
+    -> tcr ::  IPClassifier(tcp, -)
+    $ACCUMBWBEGIN
+$CLASSOUT
+$LBELEMOUT
+    $ACCUMBWEND
+//    -> SetIPChecksum
+//    -> SetTCPChecksum
+    -> ResetIPChecksum(L4 true)
+//    -> SetIPAddress(${EXTERNAL_PREFIX}.5) //Address of the gateway to left
+    -> arpleft :: ARPQuerier(IP ${EXTERNAL_PREFIX}.0.1, ETH $macleft, CACHE $ARPCACHE)
+    -> Print("TOLEFT", -1, ACTIVE $print)
+    -> td0 :: ToDPDKDevice($left, TCO true);
+
+arprespright :: ARPResponder(${INTERNAL_PREFIX}.1 $macright); 
+
+cr[0] -> arprespright;
+
+
+cr[3] -> Print("Unknown packet type") -> Discard;
+
+arprespleft[0] -> td0;
+arprespright[0] -> td1;
+
+c[1] -> [1]arpleft;
+cr[1] -> [1]arpright;
+
+tcr[1] -> Print("NOT TCP") -> Discard;
+
+//arpleft[1] -> td1;
+//arpright[1] -> Print("ARPReqRight") -> td0;
+
+
+Script(TYPE ACTIVE,
+        wait 10s,
+        set t $(now),
+        print "Time is $t, ceil $(ceil $t)",
+        wait $(sub $(ceil $t) $t),
+        set start $(now),
+        print "Starting at $start",
+        label loop,
+        //set elapsed $(sub $(now) $start),
+        set elapsed $(now),
+        print "LBSTAT-$elapsed-RESULT-NBSRV $(cheetah.nb_active_servers)",
+        set l $(load),
+        print $l,
+        print "LBSTAT-$elapsed-RESULT-LOAD $(add $l)",
+        wait 1s,
+        goto loop);
+
+DriverManager(  wait,
+                print "RESULT-LB_DROPPED $(add $(fd0.hw_dropped) $(fd1.hw_dropped))",
+                set tuse $(add $(useful_kcycles)),
+                set pcount $(add $(fd0.hw_count) $(fd1.hw_count)),
+                
+                
+                print "RESULT-LB_FLOW $(flowmanager.count)",
+//                set cproof $(sub $(accum_stop.cycles) $(accum_stop_proof.cycles)),
+                set cproof 0,
+                set cycles $(sub $(accum_start.cycles) $(accum_stop.cycles) $cproof),
+                print "RESULT-LB_CYCLESPP $(div $cycles $(accum_start.packets))",
+                print "RESULT-LB_CYCLES $cycles",
+
+//                set cbwproof $(sub $(accumbw_stop.cycles) $(accumbw_stop_proof.cycles)),
+                set cbwproof 0,
+                set cyclesbw $(sub $(accumbw_start.cycles) $(accumbw_stop.cycles) $cbwproof),
+                print "RESULT-LB_CYCLESBWPP $(div $cyclesbw $(accumbw_start.packets))",
+                print "RESULT-LB_CYCLESBW $cyclesbw",
+                print "RESULT-LB_COUNT $pcount",
+                print "RESULT-LB_USEFUL $tuse",
+                print "RESULT-LB_USEFUL_PP $(div $tuse $(div $pcount 1000))",
+                print "This is the end\n",
+            )
+
+// HTTP SERVER
+%script@server-0 sudo=true autokill=false
+mkdir -p nginx
+mkdir -p $NGINX_ROOT
+dd if=/dev/urandom of=${NGINX_ROOT}/bin-${FSIZE}K bs=1K count=$FSIZE
+chown www-data:www-data ${NGINX_ROOT}/bin-${FSIZE}K
+
+
+%cheetah,report:script@server-0 name=loadreport
+all=""
+for i in $(seq $NPF_MULTI_MAX) ; do
+    sid=$(echo "( ($i - 1) * $NPF_NODE_MAX) + $NPF_NODE_ID" | bc)
+    if [ $sid -lt $NSERVER ] ; then
+        cpuid=$(echo "$i-1" | bc)
+        all="$all ${sid}:${cpuid}"
+    fi
+done
+echo "Reporting $all"
+python3 ~/workspace/cheetah-experiments/loadbalancer-test/server.py --servers "$all" --lb nslrack14.ssvl.kth.se --interval $REPORTPERIOD
+
+%script@server-* sudo=true name=nginx autokill=false delay=1 waitfor=NETNSREADY
+srv=$NPF_MULTI
+if [ $srv -gt 6 ] ; then
+    f=$( echo "($srv - 7) % 8" | bc )
+    if [ $f -eq 0 ] ; then
+        vif=enp17s$( echo "( ($srv + 1 ) / 8)" | bc )
+    else
+        vif=enp17s$( echo "( ($srv + 1 ) / 8)" | bc )f$f
+    fi
+else
+    vif=ens1f$( echo "1 + $srv" | bc )
+fi
+sid=$(( ( ($NPF_MULTI - 1) * $NPF_NODE_MAX) + $NPF_NODE_ID ))
+
+ethtool -L $vif combined 1 &> /dev/null || echo "Could not set 1 channel for $vif !"
+set_irq_affinity_cpulist.sh $(( $NPF_MULTI -1 )) $vif &> /dev/null || "Could not set IRQs for server $sid !"
+echo "Launching NGINX for NS $(ip netns identify), server id $sid, node ${NPF_NODE_ID}, multi ${NPF_MULTI}, served by interface $vif..."
+conf=${NPF_NODE_ID}-${NPF_MULTI}.conf
+cp nginx.conf ${conf}
+sed -i "s/\$RANDOM/${RANDOM}/" ${conf}
+
+if [ $SERVER = "NGINX" ] ; then
+    taskset --cpu-list $(( $NPF_MULTI - 1 )) nginx -c $(pwd)/${conf} -p $(pwd)
+    r=$?
+else
+    taskset --cpu-list $(( $NPF_MULTI - 1 )) python3 httpserver.py &> /dev/null &
+    r=0
+fi
+echo "EVENT NGINX_LAUNCHED"
+
+sleep 12
+
+if [ $sid -lt $NSERVERLOAD ] ; then
+    ${NPF_TESTIE_PATH}/cpu.py $(( $NPF_MULTI - 1 )) $sid
+fi
+
+exit $r
+
+//%clean
+
+%file@server nginx.conf
+user www-data;
+worker_processes 32;
+worker_rlimit_nofile 70000;
+pid nginx.pid;
+daemon on;
+
+load_module /usr/lib/nginx/modules/ndk_http_module.so;
+load_module /usr/lib/nginx/modules/ngx_http_lua_module.so;
+
+events {
+    worker_connections 65536;
+    use epoll;
+    multi_accept on;
+}
+
+http {
+
+    ##
+    # Basic Settings
+    ##
+
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    types_hash_max_size 2048;
+    # server_tokens off;
+
+    # server_names_hash_bucket_size 64;
+    # server_name_in_redirect off;
+
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    ##
+    # SSL Settings
+    ##
+
+    ssl_protocols TLSv1 TLSv1.1 TLSv1.2; # Dropping SSLv3, ref: POODLE
+    ssl_prefer_server_ciphers on;
+
+    ##
+    # Logging Settings
+    ##
+
+    access_log /dev/null;
+    error_log /dev/stdout;
+
+    ##
+    # Gzip Settings
+    ##
+
+    gzip off;
+
+    # gzip_vary on;
+    # gzip_proxied any;
+    # gzip_comp_level 6;
+    # gzip_buffers 16 8k;
+    # gzip_http_version 1.1;
+    # gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+
+    ##
+    # Virtual Host Configs
+    ##
+    client_body_buffer_size      128k;
+    client_max_body_size         10m;
+    client_header_buffer_size    1k;
+    large_client_header_buffers  4 4k;
+    output_buffers               1 32k;
+    postpone_output              1460;
+
+    open_file_cache max=200000 inactive=20s;
+    open_file_cache_valid 120s;
+    open_file_cache_min_uses 1;
+    open_file_cache_errors on;
+
+    server {
+        listen 80 default_server reuseport backlog=$SRVBACKLOG;
+
+
+        root ${NGINX_ROOT}/;
+
+        # Add index.php to the list if you are using PHP
+        index index.html index.htm index.nginx-debian.html;
+
+        server_name _;
+
+        keepalive_timeout $KEEPALIVE;
+        
+        location / {
+
+                # First attempt to serve request as file, then
+                # as directory, then fall back to displaying a 404.
+                try_files $uri $uri/ =404;
+        }
+
+        # pass PHP scripts to FastCGI server
+        #
+        #location ~ \.php$ {
+        #       include snippets/fastcgi-php.conf;
+        #
+        #       # With php-fpm (or other unix sockets):
+        #       fastcgi_pass unix:/var/run/php/php7.0-fpm.sock;
+        #       # With php-cgi (or other tcp sockets):
+        #       fastcgi_pass 127.0.0.1:9000;
+        #}
+
+        # deny access to .htaccess files, if Apache's document root
+        # concurs with nginx's one
+        #
+        #location ~ /\.ht {
+        #       deny all;
+        #}
+		location /wait/ {                                                           
+				content_by_lua_block{
+                    local socket=require'socket'
+					ngx.header["Content-type"] = "text/plain"
+                    local t = tonumber(ngx.var.arg_time)
+                    local duration = 0
+                    local hardwork = 0
+                    if ngx.var.arg_duration then
+                        duration=tonumber(ngx.var.arg_duration)
+                    end
+                    if ngx.var.arg_time_dis == "bimodal" then
+                        math.randomseed(os.time() + $RANDOM ) 
+                        ngx.say("bimodal ".. tonumber(ngx.var.arg_time_param))
+                        if math.random() > tonumber(ngx.var.arg_time_param) then
+                            t = ngx.var.arg_time_max
+                        end
+                        function gaussian (mean, variance)
+							return  math.sqrt(-2 * variance * math.log(math.random())) *
+									math.cos(2 * math.pi * math.random()) + mean
+						end
+                        t = gaussian(t, t/2)
+                    end
+
+                    if tonumber(t) > 0 then
+                        local start = socket.gettime(CLOCK_MONOTONIC)
+                        local ta = tonumber(t) / 1000000
+    		            while socket.gettime(CLOCK_MONOTONIC) - start < ta do
+                            local a = 0
+				            if hardwork then
+                                for i = 1,1000
+                                do
+                                    a = a + 1
+                                end
+                            end
+                            coroutine.yield()
+                        end
+
+                    end
+                    if ngx.var.arg_fsize then
+                        local start = socket.gettime(CLOCK_MONOTONIC)
+
+                        local f= tonumber(ngx.var.arg_fsize)
+                        local tot = f * 10
+                        local body= "SOMECONTENSOMECONTENSOMECONTENSOMECONTENSOMECONTENSOMECONTENSOMECONTENSOMECONTENSOMECONTENSOMECONTEN"
+                        while (tot > 100 * (duration > 0 and duration or 1)) do
+                            tot = tot / 10
+                            body = string.rep(body, 10)
+                        end
+
+                        local done = 0
+		            	for i = 1,tot
+	                    do
+                            ngx.print(body)
+                            local now= socket.gettime(CLOCK_MONOTONIC)
+                            --Plan is where we shoould be in time
+                            local plan = (duration / 1000000) * (i / tot)
+                            local todo = plan * ( 1000 ) - done
+                                if todo > 0  then
+                                    local start_r = socket.gettime(CLOCK_MONOTONIC)
+                                    local ta = todo / 1000000
+                                    while socket.gettime(CLOCK_MONOTONIC) - start_r < ta do
+                                        local a = 0
+                                        if hardwork then
+                                            for i = 1,50000
+                                            do
+                                                a = a + 1
+                                            end
+                                        end
+                                        coroutine.yield()
+                                    end
+                                    done = done + todo
+                                end
+                            local elapsed = now-start
+                            if (elapsed < plan) then
+                                
+                                
+                                local s=plan-elapsed
+                                if s > 0.001 then
+                                    ngx.sleep(s)
+                                end
+                                --coroutine.yield()
+
+                                elapsed = socket.gettime(CLOCK_MONOTONIC)-start
+                            end
+                            coroutine.yield()
+	                    end
+                    else
+                        ngx.sleep(duration /1000000)
+                    end
+					ngx.say(t)                                       
+				}                                                                   
+		} 
+    }
+}
+
+%include cheetah.d/wrk.testie
+
+%include cheetah.d/server.testie
+
+%pyexit
+import sys
+import numpy as np
+#print(KIND_RESULTS["CPU"])
+servers={}
+
+kinds={"CPU","CONN"}
+for kind in kinds:
+  if kind in KIND_RESULTS:
+    for time,run_results in KIND_RESULTS[kind].items():
+        usage=[]
+
+        for run,results in run_results.items():
+            usage.append(float(results))
+        if kind == "CPU" and np.sum(usage) < NSERVERLOAD * 5:
+            continue
+
+        for run,results in run_results.items():
+            servers.setdefault(run,[]).append(float(results))
+        KIND_RESULTS.setdefault("%sSTATS" % kind,{})[time] = {"VAR":np.var(usage),"SUM":np.sum(usage),"AVG":np.average(usage),"IMB":np.max(usage) - np.min(usage) / np.max(usage),"MAX":np.max(usage), "MIN":np.min(usage), "MAXAVGIMB":np.max(usage) / np.average(usage)}
+
+    if ("%sSTATS" % kind) in KIND_RESULTS:
+        for metric in ["MIN", "MAX", "IMB", "AVG", "SUM", "VAR", "MAXAVGIMB"]:
+            RESULTS[kind+""+metric+"S"] = [run_results[metric] for time,run_results in KIND_RESULTS[kind+"STATS"].items()][4:-3]
+
+    RESULTS[kind + "TIMEVARS"] = []
+    for server,loads in servers.items():
+        RESULTS[kind + "TIMEVARS"].append(np.var(loads[4:-3]))
+
+n=0
+counters={}
+if "perf" in KIND_RESULTS:
+  for time,run_results in KIND_RESULTS["perf"].items():
+    n+=1
+    print(run_results)
+    for run,results in run_results.items():
+        counters.setdefault(run,0)
+        counters[run] += np.mean(results)
+
+for k,v in counters.items():
+    RESULTS[k] = v/n
+
+//Script to call PQOS to get LLC misses and other events
+%pqos:script@lb sudo=true autokill=false name=pqos waitfor=LOAD_START delay=0
+bash pqos.sh
+
+%file@p pqos.sh
+echo "Launching PQOS"
+pqos -m "all:18-$(( $CPU + 18))" -i $(( int(10) )) -o test.log &
+pid=$!
+start=$(date "+%s.%N")
+while kill -0 $! &> /dev/null; do
+    sleep 1
+    now=$(date "+%s.%N")
+    t=$(echo "$now-$start" | bc)
+    cat test.log | awk '{if($1!="TIME") print $2;}' | awk '{if($1!="IPC") print $1;}' | awk '{ total +=$1;count++} END{print "pqos-'$t'-RESULT-IPC " total/count}'
+    cat test.log | awk '{if($1!="TIME") print $3;}' | awk '{if($1!="MISSES") print $1;}' | awk '{ total +=$1;count++} END{print "pqos-'$t'-RESULT-LLCMISSES " total/count" k"}'
+    cat test.log | awk '{if($1!="TIME") print $4;}' | awk '{if($1!="LLC[KB]") print $1;}' | awk '{ total +=$1;count++} END{print "pqos-'$t'-RESULT-LLC-OCCUPANCY " total/count" KB"}'
+    cat test.log | awk '{if($1!="TIME") print $5;}' | awk '{if($1!="MBL[MB/s]") print $1;}' | awk '{ total +=$1;count++} END{print "pqos-'$t'-RESULT-MBL " total/count" MB/s"}'
+    cat test.log | awk '{if($1!="TIME") print $6;}' | awk '{if($1!="MBR[MB/s]") print $1;}' | awk '{ total +=$1;count++} END{print "pqos-'$t'-RESULT-MBR " total/count" MB/s"}'
+    > test.log
+done
+
+
+%perfclass:import@lb perf-class waitfor=LOAD_START
+%perf:script@lb sudo=true autokill=false waitfor=LOAD_START name=PerfOnLB
+
+echo "Launching perf"
+start=$(date "+%s.%N")
+while true; do
+    now=$(date "+%s.%N")
+    t=$(echo "$now-$start" | bc)
+    ~/workspace/linux-5.1/tools/perf/perf stat -e cycles,instructions,cache-references,cache-misses,cpu-migrations,bus-cycles,L1-dcache-loads,L1-dcache-load-misses,L1-dcache-stores,LLC-loads,LLC-load-misses,LLC-stores,LLC-prefetches -a --cpu 18-$(( 18 + $CPU)) sleep 1 &> perf.out
+    cat perf.out | grep "cache-misses" | awk '{ gsub(",","",$1); print "perf-'$t'-RESULT-CACHE-MISSES "$1}'
+    cat perf.out | grep "LLC-loads" | awk '{ gsub(",","",$1); print "perf-'$t'-RESULT-LLC-LOADS "$1}'
+done

@@ -1,0 +1,207 @@
+%variables
+rate:GEN_RATE=50000
+
+wrkpath:WRKSCRIPT=multiplepaths_stack.lua
+distribution:WRK_PATH_FILE=duration_mid.path
+
+wrkpath,campus:WRKSCRIPT=multiplepaths.lua
+distribution,campus:WRK_PATH_FILE=campus.path
+
+
+wrkpath:WRKSCRIPTCMD=EXPAND(-s $WRKSCRIPT )
+%late_variables
+WRK_PROTOCOL=http
+HTTP_PORT=80
+WRKSCRIPT?=
+CLIENTDELAY?=0
+
+%script@client title=WRK2ClientTimeout waitfor=NGINX_LAUNCHED delay=10
+sleep $(( $GEN_TIME + 5 ))
+exit 0
+
+%wrkpath:script@client autokill=false
+
+cp ${NPF_TESTIE_PATH}/httpclient.py ./
+cp ${NPF_TESTIE_PATH}/$WRKSCRIPT ./
+cp ${NPF_TESTIE_PATH}/$WRK_PATH_FILE ./
+sed -i 's/fname=.*/fname="$WRK_PATH_FILE"/' $WRKSCRIPT
+ls
+
+//-------------- NORATE --
+%-rate,-pygen:script@client-0 deps=wrk-tbarbette title=WRKClient waitfor=NGINX_LAUNCHED delay=10
+
+
+echo "Launching WRK on $NPF_NODE"
+if [ $NETPERNODE -eq 1 ] ; then
+    bash mid.sh 1
+else
+//mid=$(( $NPF_MULTI if $NPF_MULTI > 0 else 1 ))
+for mid in $(seq $NETPERNODE) ; do
+    bash mid.sh $mid &
+    if [ $CLIENTDELAY -gt $mid ] ; then
+        sleep 2
+    fi
+done
+echo "WAITING FOR WRKs to finish"
+wait
+echo "WRKs FINISHED"
+fi
+
+
+%-rate:file@client mid.sh
+#!/bin/bash
+mid=$1
+ncpus=$(grep -c "^processor" /proc/cpuinfo)
+nclients=$(echo "$NETPERNODE * $NPF_NODE_MAX" | bc)
+file=results-$RANDOM-$mid
+th=$(echo "$ncpus / $NETPERNODE" | bc)
+if [ $th -lt 1 ] ; then
+    th=1
+fi
+#//$GEN_THREADS / $NETPERNODE
+con=$( echo "$GEN_CONCURRENT / $nclients" | bc)
+ip=${EXTERNAL_PREFIX}.$(shuf -i 0-255 -n 1).$(shuf -i 1-254 -n 1)
+cpuid=$( echo " ( $mid - 1 ) % $ncpus " | bc )
+echo "[$mid/$NETPERNODE/$NPF_NODE_MAX] Launching WRK with $th threads for $con connections, at $rate conn/s with ip $ip"
+sudo ip addr add $ip/16 dev ${self:0:ifname}
+if [ $th -ge $con ] ; then
+    th=$con
+fi
+
+echo "EVENT LOAD_START"
+timeout $(( ${GEN_TIME} + 10 )) taskset -c $cpuid-$(echo "") wrk -c $con -r --latency -t $th -d${GEN_TIME}s --bind $ip $WRKSCRIPTCMD "${WRK_PROTOCOL}://${EXTERNAL_PREFIX}.0.1:${HTTP_PORT}/${FILE_PATH}" | tee $file
+stat=$?
+if [ $stat -ne 0 ] ; then
+    echo "ERROR"
+    cat $file
+fi
+cat $file | grep "requests in " | awk '{printf "RESULT-NBREQ %s\n", $1}' | head -n 1
+cat $file | grep "Transfer/sec" | awk '{printf "RESULT-THROUGHPUT %s\n", $2}' | head -n 1
+cat $file | grep "Requests/sec" | awk '{printf "RESULT-REQUEST %s\n", $2}' | head -n 1
+cat $file | grep "Latency" | awk '{printf "RESULT-LATENCY %s\n", $2}' | head -n 1
+cat $file | grep "99[.]00 " | awk '{printf "RESULT-LAT99 %s\n", $2}' | head -n 1
+cat $file | sed -n -e '/Latency Distribution/,/requests/p' | head -n -1 | tail -n+2 | grep -E "50.00 |99.00 " | awk '{printf "RESULT-LAT%d %s\n", $1, $2}' | head -n 1
+cat $file | grep "Socket errors" | awk '{printf "RESULT-HTTPTIMEOUT %s\n", $10 }' | head -n 1
+
+
+
+echo "EVENT WRK_FINISHED"
+
+rm $file
+exit $stat
+
+
+
+
+
+
+//---------- RATE -----------------
+
+%-pygen,rate:script@client-0 deps=wrk2-tbarbette title=WRK2Client waitfor=NGINX_LAUNCHED delay=10
+
+
+echo "Launching WRK on $NPF_NODE"
+if [ $NETPERNODE -eq 1 ] ; then
+    bash mid.sh 1
+else
+//mid=$(( $NPF_MULTI if $NPF_MULTI > 0 else 1 ))
+for mid in $(seq $NETPERNODE) ; do
+    bash mid.sh $mid &
+    if [ $CLIENTDELAY -gt $mid ] ; then
+        sleep 2
+    fi
+done
+echo "WAITING FOR WRKs to finish"
+wait
+echo "WRKs FINISHED"
+fi
+
+
+
+%-pygen,rate:file@client mid.sh
+#!/bin/bash
+mid=$1
+ncpus=$(grep -c "^processor" /proc/cpuinfo)
+nclients=$(echo "$NETPERNODE * $NPF_NODE_MAX" | bc)
+file=results-$RANDOM-$mid
+th=$(echo "$ncpus / $NETPERNODE" | bc)
+if [ $th -lt 1 ] ; then
+    th=1
+fi
+#//$GEN_THREADS / $NETPERNODE
+con=$( echo "$GEN_CONCURRENT / $nclients" | bc)
+rate=$(echo "$GEN_RATE / $nclients" | bc)
+ip=${EXTERNAL_PREFIX}.$(shuf -i 0-255 -n 1).$(shuf -i 1-254 -n 1)
+cpuid=$( echo " ( $mid - 1 ) % $ncpus " | bc )
+echo "[$mid/$NETPERNODE/$NPF_NODE_MAX] Launching WRK with $th threads for $con connections, at $rate conn/s with ip $ip"
+sudo ip addr add $ip/16 dev ${self:0:ifname}
+if [ $th -ge $con ] ; then
+    th=$con
+fi
+
+echo "EVENT LOAD_START"
+timeout $(( ${GEN_TIME} + 10 )) taskset -c $cpuid-$( echo "$cpuid +$NETPERNODE" | bc) wrk -c $con -r -t $th -d${GEN_TIME}s -R $rate --bind $ip $WRKSCRIPTCMD --latency "${WRK_PROTOCOL}://${EXTERNAL_PREFIX}.0.1:${HTTP_PORT}/${FILE_PATH}" | tee $file
+#// > $file // | tee $file
+stat=$?
+cat $file | grep "requests in " | awk '{printf "RESULT-NBREQ %s\n", $1}' | head -n 1
+cat $file | grep "Transfer/sec" | awk '{printf "RESULT-THROUGHPUT %s\n", $2}' | head -n 1
+cat $file | grep "Requests/sec" | awk '{printf "RESULT-REQUEST %s\n", $2}' | head -n 1
+cat $file | grep "Latency" | awk '{printf "RESULT-LATENCY %s\n", $2}' | head -n 1
+cat $file | grep "99[.][0]\+%" | awk '{printf "RESULT-LAT99 %s\n", $2}' | head -n 1
+cat $file | grep "99[.]9[0]\+%" | awk '{printf "RESULT-LAT999 %s\n", $2}' | head -n 1
+#cat $file | awk '/Detailed Percentile/{flag=1;next}/Mean/{flag=0}flag' | tail -n +3 | head -n -1 | awk '{printf "%f-RESULT-CDFLAT %f\n", $1*1000, $2}' | uniq
+cat $file | grep "Socket errors" | awk '{printf "RESULT-HTTPTIMEOUT %s\n", $10 }' | head -n 1
+echo "EVENT WRK_FINISHED"
+
+rm $file
+exit $stat
+
+
+%pygen:script@client-0 waitfor=NGINX_LAUNCHED
+
+for mid in $(seq $NETPERNODE) ; do
+    ncpus=$(grep -c "^processor" /proc/cpuinfo)
+nclients=$(echo "$NETPERNODE * $NPF_NODE_MAX" | bc)
+file=results-$RANDOM-$mid
+th=$(echo "$ncpus / $NETPERNODE" | bc)
+if [ $th -lt 1 ] ; then
+    th=1
+fi
+#//$GEN_THREADS / $NETPERNODE
+con=$( echo "$GEN_CONCURRENT / $nclients" | bc)
+rate=$(echo "$GEN_RATE / $nclients" | bc)
+ip=${EXTERNAL_PREFIX}.$(shuf -i 0-255 -n 1).$(shuf -i 1-254 -n 1)
+cpuid=$( echo " ( $mid - 1 ) % $ncpus " | bc )
+echo "[$mid/$NETPERNODE/$NPF_NODE_MAX] Launching HTTPCLIENT with $th threads for $con connections, at $rate conn/s with ip $ip"
+sudo ip addr add $ip/16 dev ${self:0:ifname}
+    rate="$rate * 0.6  + ($rate * 0.4) * (sin(3.1415 * (max(0,x -${DYNAMIC_START} )  / ($GEN_TIME - 30) ) ) * sin(3.1415 * (max(0,(x-${DYNAMIC_START} ) ) / ($GEN_TIME - 30) ) ) )"
+    taskset -c $cpuid-$( echo "$cpuid +$NETPERNODE" | bc) python3 httpclient.py $WRK_PATH_FILE --host "${WRK_PROTOCOL}://${EXTERNAL_PREFIX}.0.1:${HTTP_PORT}/" --probe "/wait/?fsize=8&duration=0&time=0" --concurrent $con --duration $GEN_TIME --rate "$rate" --bind $ip &
+done
+wait
+echo "EVENT LOAD_FINISHED"
+
+
+%dynamic:script waitfor=NGINX_LAUNCHED autokill=false
+sleep ${DYNAMIC_START}
+wget --post-data ''  http://${lb:ip}/cheetah/add_server -O /dev/null
+sleep 2
+wget --post-data ''  http://${lb:ip}/cheetah/add_server -O /dev/null
+sleep 1
+wget --post-data ''  http://${lb:ip}/cheetah/add_server -O /dev/null
+sleep 1
+wget --post-data ''  http://${lb:ip}/cheetah/add_server -O /dev/null
+wget --post-data ''  http://${lb:ip}/cheetah/add_server -O /dev/null
+sleep 1
+wget --post-data ''  http://${lb:ip}/cheetah/remove_server -O /dev/null
+wget --post-data ''  http://${lb:ip}/cheetah/add_server -O /dev/null
+sleep 5
+wget --post-data ''  http://${lb:ip}/cheetah/add_server -O /dev/null
+sleep 3
+wget --post-data ''  http://${lb:ip}/cheetah/remove_server -O /dev/null
+sleep 4
+wget --post-data ''  http://${lb:ip}/cheetah/remove_server -O /dev/null
+sleep 1
+wget --post-data ''  http://${lb:ip}/cheetah/remove_server -O /dev/null
+sleep 1
+wget --post-data ''  http://${lb:ip}/cheetah/remove_server -O /dev/null
+wget --post-data ''  http://${lb:ip}/cheetah/remove_server -O /dev/null
