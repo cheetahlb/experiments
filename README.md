@@ -7,7 +7,7 @@ This folder contains one sub-folder per experiment. Some figures of Cheetah pape
 
 Experiments have Makefiles that implement "make test" and sometimes "make plot". Each folder contains a README.md file to describe it.
 
-All tests use NPF to orchestrate experiments. Be sure to set the path to NPF in the folder includes/Makefile.include and all dependencies as described below. While NPF generates graph automatically, we preferred to make fine-tuned graphs using matplotlib ourselves for some of the figure. For some experiments, the data in CSV is provided in this repository, allowing to generate the graphs.
+All tests use NPF to orchestrate experiments. Be sure to set the path to NPF in the folder includes/Makefile.include and all dependencies as described below. While NPF generates graph automatically, we preferred to make fine-tuned graphs using matplotlib ourselves for some of the figure. For all experiments, the data in CSV is provided in this repository, allowing to generate the graphs.
 
 NPF will download and build all dependencies, excluding Cheetah itself.
 
