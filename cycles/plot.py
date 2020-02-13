@@ -101,7 +101,7 @@ for suffix in suffixes:
         lines.append("--")
         markers.append("*")
     if do_cheetah:
-        series.extend(["Cheetah_Stateless"])
+        series.extend(["Cheetah_Stateless_Obfuscated"])
         labels.extend(["Stateless Cheetah"])
         colors.append(c_cheetah)
         lines.append("--")
@@ -175,7 +175,7 @@ for suffix in suffixes:
     ax = plt.gca()
     ax.set_xscale("symlog")
     ax.set_xticks(x)
-    ax.set_ylim(50,450)
+    ax.set_ylim(50)
     ax.set_xlabel("Requests per seconds")
     ax.set_ylabel("Cycles / packets")
     ax.set_yscale("symlog")
@@ -194,5 +194,6 @@ for suffix in suffixes:
 
 
     plt.tight_layout()
-
-    plt.savefig('cycles%d.%s' % (suffix,extension),  bbox_inches='tight' )
+    n = 'cycles%d.%s' % (suffix,extension)
+    print("Saving %s" % n)
+    plt.savefig(n,  bbox_inches='tight' )

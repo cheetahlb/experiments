@@ -2,7 +2,7 @@
 timeout=90
 
 result_add={THROUGHPUT,REQUEST,NBREQ,GNBREQ,GERR} //For multi-client
-result_append={LATENCY,LAT99,GLAT99,GLATENCY,GPROBELAT99,GPROBELATENCY}
+result_append={LATENCY,LAT99,GLAT99,GLATENCY,GPROBELAT99,GPROBELATENCY,PROBELAT99}
 accept_zero={LB_DROPPED,HTTPTIMEOUT,GERR}
 
 var_names={THROUGHPUT:Throughput (GB/s)}
@@ -33,7 +33,7 @@ var_log+={LAT99,LATENCY,LAT999}
 var_ticks+={LAT99:0+1+10+20+50+100+200+500+1000+2000+10000,LAT999:0+1+10+20+50+100+200+500+1000+2000+10000}
 var_lim+={result-LAT999:20-5000,result-LAT99:10-5000,result-LATENCY:0-2000}
 var_grid+={LAT999,LAT99,LATENCY}
-latcross:graph_cross_reference={LAT99:CPUAVGS,LAT999:CPUAVGS}
+latcross:graph_cross_reference={LAT99:CPUAVGS,LAT999:CPUAVGS,CPUVARS:CPUAVGS}
 graph_background={LAT99:14}
 
 var_names+={NETPERNODE:Prefixes per clients}
@@ -70,6 +70,14 @@ perfclass:graph_result_as_variable+={PERF-(.*):Perf}
 cp BEGIN $WORKSPACE/
 
 %script@lb delay=2 sudo=true name=LBMainClick
+if [ ! -e "$CPUPOWER_PATH" ] ; then
+    CPUPOWER_PATH=$(dirname $(which cpupower))
+fi
+cd $CPUPOWER_PATH
+LD_LIBRARY_PATH=. ./cpupower frequency-set -g performance
+NOMINAL=$(cat /proc/cpuinfo | grep model | grep -o "[0-9.]\+G" | head -n 1)
+echo "Setting CPU to ${NOMINAL}Hz"
+LD_LIBRARY_PATH=. ./cpupower frequency-set -u $NOMINAL -d $NOMINAL
 cd $WORKSPACE
 sudo killall -9 click
 $GDB bin/click --dpdk -w ${self:0:pci} -w ${self:1:pci} -l 0-35 -- BEGIN macleft=${self:0:mac} macright=${self:1:mac}
@@ -81,7 +89,7 @@ VERBOSE=0
 PRINT=0
 //CAPA=32768
 CAPA=4194304
-CPU=2
+CPU=4
 FSIZE=8
 GEN_CONCURRENT=1024
 GEN_THREADS=16
@@ -123,6 +131,7 @@ parallel:SCALE=parallel
 %late_variables
 SCALE?=share
 FIPMOPT?=
+CPUPOWER_PATH=/home/tom/workspace/linux-5.1/tools/power/cpupower/
 cheetah,stateful|cheetah,serverside:SRVCOOKIE?=1
 SRVCOOKIE?=0
 //cheetah,stateful:TWRECYCLE?=0
@@ -178,6 +187,8 @@ file_rate:GEN_RATE=EXPAND( $(( $FILE_RATE / $FSIZE )) )
 server_rate:GEN_RATE=EXPAND( $(( $SERVER_RATE * $NSERVER )) )
 server_wait:WAIT?=EXPAND( $(( int(max( ($SERVER_RATE * -4.3 +4400)  ,0) ) )) )
 
+HARDWORK?=0
+
 NSERVERLOAD?=EXPAND(${NSERVER})
 
 server_concurrent:GEN_CONCURRENT=EXPAND( $(( $SERVER_CONCURRENT * $NSERVER )) )
@@ -189,7 +200,7 @@ NDST=
 
 //WRK_HOST=EXPAND(${EXTERNAL_PREFIX}.0.1)
 -wait,-wrkpath:FILE_PATH=EXPAND(bin-${FSIZE}K)
-wait,-wrkpath:FILE_PATH=EXPAND(wait/?time=$(( "$WAIT".strip() ))&fsize=$FSIZE&duration=$DURATION)
+wait,-wrkpath:FILE_PATH=EXPAND(wait/?time=$(( "$WAIT".strip() ))&fsize=$FSIZE&duration=$DURATION&hardwork=$HARDWORK)
 wait,bimodal,-wrkpath:FILE_PATH=EXPAND(wait/?time=$(( "$WAIT".strip() ))&fsize=$FSIZE&time_max=${WAIT_MAX}&time_dis=${WAIT_DIS}&time_param=${WAIT_PARAM})
 
 %stateful:late_variables
@@ -208,6 +219,7 @@ LBELEMOUT=EXPAND(  -> IPLoadBalancerReverse(VIP ${EXTERNAL_PREFIX}.0.1) )
 CLASSIN=
 CLASSOUT=
 AFTERELEMIN= -> Strip(36) -> MarkIPHeader -> FlowIPManagerIMP(CAPACITY 10000000) -> Unstrip(36) -> BeamerVerifier(cheetah)
+beamerdecap:AFTERELEMIN= -> Strip(36) -> MarkIPHeader -> Unstrip(36) -> BeamerDecap()
 
 %cheetah,-stateful:late_variables
 LBELEMIN=EXPAND( -> [0] cheetah :: CheetahStateless(VIP ${EXTERNAL_PREFIX}.0.1, $DSTS BUCKETS 256, FIX_TS_ECR $FIX_ECR, SET_TS_VAL $FIX_VAL, FIX_IP $FIX_IP,AWRR_ALPHA ${AWRR_ALPHA}, AWRR_TIME $((int($REPORTPERIOD / 2) )), VERBOSE $verbose, LB_MODE $LB_MODE $HW, LST_MODE $LST_MODE, RESET_TIME 1, HASH $OBFUSCATE, AUTOSCALE $AUTOSCALE, NSERVER $NSTARTSERVER)[0] ) //L2 $L2
@@ -225,6 +237,7 @@ CLASSOUT=EXPAND( )
 
 %late_variables
 AFTERELEMIN?=
+PYSINRATE?=1
 
 %script@client autokill=false sudo=true
 sysctl -w net.ipv4.neigh.default.gc_thresh1=2048
@@ -300,7 +313,14 @@ sleep 1
 killall -9 nginx &> /dev/null || true
 sleep 1
 service irqbalance stop
-
+if [ ! -e "$CPUPOWER_PATH" ] ; then
+    CPUPOWER_PATH=$(dirname $(which cpupower))
+fi
+cd $CPUPOWER_PATH
+LD_LIBRARY_PATH=. ./cpupower frequency-set -g performance
+NOMINAL=$(cat /proc/cpuinfo | grep model | grep -o "[0-9.]\+G" | head -n 1)
+echo "Setting CPU to ${NOMINAL}Hz"
+LD_LIBRARY_PATH=. ./cpupower frequency-set -u $NOMINAL -d $NOMINAL
 wait
 
 echo "EVENT NETNSREADY"
@@ -348,7 +368,7 @@ arprespleft :: ARPResponder(${EXTERNAL_PREFIX}.0.1 $macleft)
 
 c[0] -> arprespleft;
 
-c[3] -> Print("Unknown packet type") -> Discard;
+c[3] -> Print("Unknown packet type", ACTIVE $print) -> Discard;
 
 
 fd1 :: FromDPDKDevice($right, VERBOSE 2, MAXTHREADS $CPU, RSS_AGGREGATE true, PREFETCH_SECOND $pftb,
@@ -382,7 +402,7 @@ arprespright :: ARPResponder(${INTERNAL_PREFIX}.1 $macright);
 cr[0] -> arprespright;
 
 
-cr[3] -> Print("Unknown packet type") -> Discard;
+cr[3] -> Print("Unknown packet type", ACTIVE $print) -> Discard;
 
 arprespleft[0] -> td0;
 arprespright[0] -> td1;
@@ -617,8 +637,14 @@ http {
                     local t = tonumber(ngx.var.arg_time)
                     local duration = 0
                     local hardwork = 0
+
+                    if ngx.var.arg_hardwork then
+                        hardwork = tonumber(ngx.var.arg_hardwork)
+                    end
+                    yield = 1
+
                     if ngx.var.arg_duration then
-                        duration=tonumber(ngx.var.arg_duration)
+                        duration = tonumber(ngx.var.arg_duration)
                     end
                     if ngx.var.arg_time_dis == "bimodal" then
                         math.randomseed(os.time() + $RANDOM ) 
@@ -639,12 +665,14 @@ http {
     		            while socket.gettime(CLOCK_MONOTONIC) - start < ta do
                             local a = 0
 				            if hardwork then
-                                for i = 1,1000
+                                for i = 1,100000
                                 do
-                                    a = a + 1
+                                    a = (a + 3) / 2
                                 end
                             end
-                            coroutine.yield()
+                            if yield then
+                                coroutine.yield()
+                            end
                         end
 
                     end
@@ -664,7 +692,7 @@ http {
 	                    do
                             ngx.print(body)
                             local now= socket.gettime(CLOCK_MONOTONIC)
-                            --Plan is where we shoould be in time
+                            --Plan is where we should be in time
                             local plan = (duration / 1000000) * (i / tot)
                             local todo = plan * ( 1000 ) - done
                                 if todo > 0  then
@@ -673,19 +701,20 @@ http {
                                     while socket.gettime(CLOCK_MONOTONIC) - start_r < ta do
                                         local a = 0
                                         if hardwork then
-                                            for i = 1,50000
+                                            for i = 1,100000
                                             do
-                                                a = a + 1
+                                                a = (a + 3) / 2
                                             end
                                         end
-                                        coroutine.yield()
+                                        if yield then
+                                            coroutine.yield()
+                                        end
                                     end
                                     done = done + todo
                                 end
                             local elapsed = now-start
+                            --Wait for the time left
                             if (elapsed < plan) then
-                                
-                                
                                 local s=plan-elapsed
                                 if s > 0.001 then
                                     ngx.sleep(s)

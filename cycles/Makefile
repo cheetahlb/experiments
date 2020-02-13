@@ -10,7 +10,7 @@ METHODS+="local+cheetah,stateful,LB_MODE=rr,CAPA=10000000:Cheetah Stateful 10M"
 #METHODS+="local+cheetah,serverside,LB_MODE=rr:Cheetah Stateless"
 METHODS+="local+cheetah,serverside,obfuscate,LB_MODE=rr:Cheetah Stateless Obfuscated"
 #METHODS+="local+cheetah,serverside,hash:Cheetah Stateless Hash"
-METHODS+="local+beamer:Beamer"
+METHODS+="local+beamer,beamerdecap:Beamer"
 METHODS+="local+hash,rss:Hash RSS" "local+hash:Hash DPDK" 
 
 #METHODS="local+cheetah,LB_MODE=rr:Cheetah Stateless LB"

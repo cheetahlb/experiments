@@ -1,6 +1,22 @@
+#Path to NPF. See github.com/tbarbette/npf
 NPF_PATH=/home/tom/npf
+
+#Path to the root folder of this "experiments" repository
 EXPE_PATH=/home/tom/workspace/cheetah-experiments/real/
+
+#Number of runs per points
 N_RUNS=10
+
+#Path to cheetah (the fastclick one)
 CHEETAH_PATH=/home/tom/workspace/cheetah/
-TESTIE_PATH=${EXPE_PATH}/includes/cheetah.testie
+
+#Path to the modified kernel root on servers (if used, probably true)
+KERNEL_PATH=/home/tom/workspace/linux-5.1/
+
+#List of machines to be used
 NPF_CLUSTER=client=nslrack15-100G client=nslrack16-100G client=nslrack17-100G client=nslrack18-100G lb=nslrack14-100G,nic=2+3 server=nslrack20-100G,multi=16,mode=netns server=nslrack21-100G,multi=16,mode=netns server=nslrack19-100G,multi=16,mode=netns server=nslrack22-100G,multi=16,mode=netns
+
+#---
+#You should not modify the following
+TESTIE_PATH=${EXPE_PATH}/includes/cheetah.testie
+CPUPOWER_PATH=${KERNEL_PATH}/tools/power/cpupower/
