@@ -6,4 +6,4 @@ Do not forget to set the variables in the includes/Makefile.includes file of the
 make test //Will run the test
 make plot //Will generate the paper graph
 
-
+Our generated dataset is in the dynamic folder (under this dynamic folder)

@@ -16,7 +16,7 @@ import matplotlib
 matplotlib.rc('figure', figsize=(4.3, 2.6))
 
 
-prefix = "./"
+prefix = "dynamic/"
 series = []
 #series.append(["Stateful_100K", "Stateful_1M", "Cheetah_Stateful_1M" ])
 series.extend(["Hash", "Cst_Hash", "Beamer", "Cheetah_-_AWRR" ])
@@ -39,10 +39,7 @@ lines = ["--","--",":","-"]
 data = []
 nbreq = []
 nbsrv = []
-shift_s = [0]
-cols=range(10)
-#cols=range(3)
-#cols=None
+
 for i,serie in enumerate(series):
   try:
     f = prefix + serie + "GERR.csv"
@@ -60,21 +57,18 @@ for i,serie in enumerate(series):
 
 for i,serie in enumerate(series):
     x=data[i][:,0]
-    x = x - min(x) - 15
+    #x = x - min(x) - 15
+    x = x -15
     y=data[i][:,1:]
     n=nbreq[i][:,1:]
+    y = (np.nanmedian(y,axis=1) / np.nanmean(n,axis=1)) * 100
 
-#    print(serie)
-#    print(np.nanmean(y,axis=1))
-
-#    print(np.nanmean(n,axis=1))
-
-    y = (np.nanmean(y,axis=1) / np.nanmean(n,axis=1)) * 100
+    print(serie,"max -> ",np.max(y))
     mask = [True] * len(x)
     drop = [False] * len(x)
 
 
-    plt.errorbar(x[mask],y=y[mask],label=labels[i],marker=markers[i],color=colors[i],linestyle=lines[i],markevery=5)
+    plt.errorbar(x[mask],y=y[mask],label=labels[i],marker=markers[i],color=colors[i],linestyle=lines[i],markevery=((i + 2) % 5,5))
 
 plt.legend(loc="lower center", bbox_to_anchor=(0.5,1),ncol=2)
 
@@ -84,8 +78,8 @@ second_nbreq = False
 if second_nbreq:
     for i,serie in enumerate(series):
         x=nbreq[i][:,0]
-        x = x - min(x) - 15
-        y=np.nanmean(nbreq[i][:,1:],axis=1)
+        #x = x - min(x) - 15
+        y=np.nanmedian(nbreq[i][:,1:],axis=1)
         mask = [True] * len(x)
         drop = [False] * len(x)
 
@@ -99,25 +93,24 @@ else:
             continue
 #serie=series[0]
         x=nbsrv[i][:,0]
-        x= x-min(x)
-        x = x - 15 + shift_s[0]
+        #x= x-min(x)
+        x = x - 15
         s=nbsrv[i][:,1:]
 
-        ax2.plot(x,np.nanmean(s,axis=1),color="black")
-        ax2.text(19,25, "Number of servers")
+        ax2.plot(x,np.nanmedian(s,axis=1),color="black")
+        yp=np.nanmedian(s[x==20])
+        ax2.annotate(xy=(20.2,yp+0.2),xytext=(22,yp), s="Number of servers")
     ax2.set_ylim(0,32)
 
     ax2.set_ylabel("Number of servers")
-#ax.set_xscale("symlog")
-#ax.set_xticks(x)
-#ax.set_ylim(50,450)
+
 ax.set_xlabel("Time (s)")
 ax.set_ylabel("Broken connections (%)")
-ax.set_yscale("symlog", basey=10)
-ax.set_xlim(0,35)
+ax.set_yscale("symlog", basey=2, linthreshy=1)
+ax.set_xlim(0,40)
 
 #ax.set_ylim(50)
-ax.set_yticks([0,0.5,1,2,5,10])
+ax.set_yticks([0,0.5,1,2,4,8])
 ax.grid(axis="y")
 def f(x,pos):
     return "%d" % x if x > 1 else "%.1f" % x

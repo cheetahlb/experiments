@@ -201,7 +201,7 @@ for mid in $(seq $NETPERNODE) ; do
     echo "[$mid/$NETPERNODE/$NPF_NODE_MAX] Launching HTTPCLIENT with $th threads for $con connections, at $rate conn/s with ip $ip"
     sudo ip addr add $ip/16 dev ${self:0:ifname}
     if [ $PYSINRATE -eq 1 ] ; then
-        rate="$rate * 0.6  + ($rate * 0.4) * (sin(3.1415 * (max(0,x -${DYNAMIC_START} )  / ($GEN_TIME - 30) ) ) * sin(3.1415 * (max(0,(x-${DYNAMIC_START} ) ) / ($GEN_TIME - 30) ) ) )"
+        rate="$rate * 0.6  + ($rate * 0.4) * (sin(3.1415 * (max(0,min(x,50) -${DYNAMIC_START} )  / ($GEN_TIME - 30) ) ) * sin(3.1415 * (max(0,(min(x,50)-${DYNAMIC_START} ) ) / ($GEN_TIME - 30) ) ) )"
     fi
     if [ -z "$WRK_PATH_FILE" ] ; then
        WRK_PATH_FILE=f
@@ -222,6 +222,8 @@ sleep 2
 wget --post-data ''  http://${lb:ip}/cheetah/add_server -O /dev/null
 sleep 1
 wget --post-data ''  http://${lb:ip}/cheetah/add_server -O /dev/null
+sleep 0.1
+wget --post-data ''  http://${lb:ip}/cheetah/add_server -O /dev/null
 sleep 1
 wget --post-data ''  http://${lb:ip}/cheetah/add_server -O /dev/null
 wget --post-data ''  http://${lb:ip}/cheetah/add_server -O /dev/null
@@ -232,10 +234,15 @@ sleep 5
 wget --post-data ''  http://${lb:ip}/cheetah/add_server -O /dev/null
 sleep 3
 wget --post-data ''  http://${lb:ip}/cheetah/remove_server -O /dev/null
+wget --post-data ''  http://${lb:ip}/cheetah/remove_server -O /dev/null
 sleep 4
 wget --post-data ''  http://${lb:ip}/cheetah/remove_server -O /dev/null
 sleep 1
 wget --post-data ''  http://${lb:ip}/cheetah/remove_server -O /dev/null
 sleep 1
 wget --post-data ''  http://${lb:ip}/cheetah/remove_server -O /dev/null
+wget --post-data ''  http://${lb:ip}/cheetah/remove_server -O /dev/null
+sleep 0.2
+wget --post-data ''  http://${lb:ip}/cheetah/remove_server -O /dev/null
+sleep 0.2
 wget --post-data ''  http://${lb:ip}/cheetah/remove_server -O /dev/null

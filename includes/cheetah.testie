@@ -1,6 +1,8 @@
 %config
 timeout=90
 
+glob_sync={GEN,LBSTAT}
+
 result_add={THROUGHPUT,REQUEST,NBREQ,GNBREQ,GERR} //For multi-client
 result_append={LATENCY,LAT99,GLAT99,GLATENCY,GPROBELAT99,GPROBELATENCY,PROBELAT99}
 accept_zero={LB_DROPPED,HTTPTIMEOUT,GERR}
@@ -218,7 +220,7 @@ LBELEMIN=EXPAND( -> cheetah :: SimpleBeamerLB($DSTS VIP ${EXTERNAL_PREFIX}.0.1 ,
 LBELEMOUT=EXPAND(  -> IPLoadBalancerReverse(VIP ${EXTERNAL_PREFIX}.0.1) )
 CLASSIN=
 CLASSOUT=
-AFTERELEMIN= -> Strip(36) -> MarkIPHeader -> FlowIPManagerIMP(CAPACITY 10000000) -> Unstrip(36) -> BeamerVerifier(cheetah)
+AFTERELEMIN= -> Strip(36) -> MarkIPHeader -> FlowIPManagerMP(CAPACITY 10000000) -> Unstrip(36) -> BeamerVerifier(cheetah)
 beamerdecap:AFTERELEMIN= -> Strip(36) -> MarkIPHeader -> Unstrip(36) -> BeamerDecap()
 
 %cheetah,-stateful:late_variables
