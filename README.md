@@ -1,11 +1,11 @@
-Cheetah experiments
-===================
+Cheetah experiments & Dataset
+=============================
 
 This repository focuses on reproducing experiments, the code of Cheetah itself is available at https://github.com/cheetahlb/cheetah-fastclick. The P4 versions, Kernels, etc are also available at https://github.com/cheetahlb/.
 If you're just looking at trying Cheetah, this is not for you. Cheetah repository contains enough simple examples. This repository is made to set up complex, cluster-scale experiments.
 This folder contains one sub-folder per experiment. Some figures of Cheetah paper relate to the same experiment. 
 
-Experiments have Makefiles that implement "make test" and sometimes "make plot". Each folder contains a README.md file to describe it.
+Experiments have Makefiles that implement "make test" and sometimes "make plot". For each experiment we provide the intermetdiate dataset (the raw data). Each folder contains a README.md file to describe it.
 
 All tests use NPF to orchestrate experiments. Be sure to set the path to NPF in the folder includes/Makefile.include and all dependencies as described below. While NPF generates graph automatically, we preferred to make fine-tuned graphs using matplotlib ourselves for some of the figure. For all experiments, the data in CSV is provided in this repository, allowing to generate the graphs.
 
