@@ -1,2 +1,2 @@
 %script@server-0 autokill=false
-cp $WORKSPACE/../cheetah-experiments/stateful/httpserver.py ./
+cp $WORKSPACE/includes/httpserver.py ./

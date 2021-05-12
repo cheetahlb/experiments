@@ -477,7 +477,7 @@ for i in $(seq $NPF_MULTI_MAX) ; do
     fi
 done
 echo "Reporting $all"
-python3 ~/workspace/cheetah-experiments/loadbalancer-test/server.py --servers "$all" --lb nslrack14.ssvl.kth.se --interval $REPORTPERIOD
+python3 ${NPF_TESTIE_PATH}/server.py --servers "$all" --lb nslrack14.ssvl.kth.se --interval $REPORTPERIOD
 
 %script@server-* sudo=true name=nginx autokill=false delay=1 waitfor=NETNSREADY
 srv=$NPF_MULTI
