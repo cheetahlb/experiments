@@ -1,0 +1,62 @@
+%config
+keepopen:timeout=3600
+result_add={THROUGHPUT,LINK,REQUEST}
+graph_color={2,5}
+var_grid=1
+var_names+={GEN_RATE:Generator request rate (req/s),LAT99:99th Flow Completion Time (s),LINK:Throughput (Gbps),THROUGHPUT:Goodput,MODE:_}
+var_divider={result-LINK:1000000000}
+var_lim={result-LINK:0-30,result-LAT99:0-6}
+
+%variables
+CON=256
+GEN_THREADS=16
+GEN_RATE=-1
+MODE={wrr,hash}
+
+%init@server-0 sudo=true
+#echo 16 | sudo tee /sys/class/net/ens1f0/device/sriov_numvfs
+brctl addbr br0
+brctl addif br0 ens1f1
+sudo ifconfig br0 up
+
+%script@server-* sudo=true
+c=${NPF_MULTI_ID}
+cpu=\$(( $c - 1 ))
+port=33
+s=${NPF_NODE_ID}
+a=${NPF_ARRAY_ID}
+cd /home/tom/workspace/picoquic-lb
+ip=192.168.6$s.$c
+echo "EVENT SRV_READY"
+echo "Server $s, MID $c, A $a, CPU $cpu, IP $ip, $ID"
+#sudo ip addr add $ip dev ens1f1
+ip netns add npfns$c
+ip link add v$c type veth peer name i$c
+ip link set netns npfns$c dev i$c
+ifconfig v$c up
+brctl addif br0 v$c
+ip netns exec npfns$c ifconfig i$c $ip netmask 255.255.0.0
+ip netns exec npfns$c ifconfig i$c hw ether 16:93:a8:4d:$(printf "%02x" $s):$(printf "%02x"  $c)
+ip netns exec npfns$c arp -s 192.168.63.15 b8:83:03:6f:43:49
+ip netns exec npfns$c arp -s 192.168.63.17 b8:83:03:6f:43:29
+//taskset -c $cpu-$cpu unbuffer ip netns exec npfns$c unbuffer ./picoquic_sample server 4433 ./certs/ca-cert.pem ./certs/server-key.pem ./server_files $a
+taskset -c $cpu-$cpu unbuffer ip netns exec npfns$c unbuffer ./picoquicdemo -p 44$( printf "%02d"  $port) -d $a -b $ip
+
+%-keepopen:script@client waitfor=SRV_READY delay=2 sudo=true
+fname=log.${NPF_ARRAY_ID}
+cd ~/npf/build/wrk2-tbarbette/src
+taskset -c 0-15 ../wrk -R $(( int(${GEN_RATE} / ${NPF_NODE_MAX}) )) --timeout 5 -q -t $GEN_THREADS -c $CON  http://192.168.64.1:4433/1000000 -L -U 2>&1 | tee $fname
+cat $fname | grep "Transfer/sec" | awk '{printf "RESULT-THROUGHPUT %s\n", $2}' | head -n 1
+cat $fname | grep "Requests/sec" | awk '{printf "RESULT-REQUEST %s\n", $2}' | head -n 1
+cat $fname | grep "Latency" | awk '{printf "RESULT-LATENCY %s\n", $2}' | head -n 1
+cat $fname| grep "99.000%" | awk '{printf "RESULT-LAT99 %s\n", $2}' | head -n 1
+
+%script@switch autokill=false
+cd /root/labs/70-cheetah-quic/
+$SDE/run_bfshell.sh -b ~/labs/70-cheetah-quic/cheetah_change_mode_to_${MODE}.py
+
+%import@client dev_rate
+
+%script@client autokill=false
+echo "AAA ${self:0:ifname}"
+
